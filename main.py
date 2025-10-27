@@ -18,10 +18,10 @@ logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
 credentials = get_google_credentials()
 vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
 
-# Load multimodal embedding model once
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
-SIM_LOW = float(os.getenv("SIM_LOW", "0.08"))
-SIM_HIGH = float(os.getenv("SIM_HIGH", "0.4"))
+# Defaults (can be overridden per request)
+DEFAULT_EMBEDDING_DIM = 512
+DEFAULT_SIM_LOW = 0.08
+DEFAULT_SIM_HIGH = 0.4
 
 mm_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
 
@@ -42,12 +42,16 @@ async def evaluate_endpoint(
     image: UploadFile = File(..., description="Product image (JPEG/PNG)"),
     title: str = Form(..., description="Product title"),
     description: str = Form(..., description="Product description"),
+    embedding_dim: int = Form(DEFAULT_EMBEDDING_DIM, description="Embedding dimension (128, 256, 512, 1408)"),
+    sim_low: float = Form(DEFAULT_SIM_LOW, description="Lower similarity threshold (auto-fail)"),
+    sim_high: float = Form(DEFAULT_SIM_HIGH, description="Upper similarity threshold (auto-pass)"),
 ):
     """
     Evaluate product using embeddings-first approach with gray-zone LLM fallback.
 
     - Computes image-title, image-description, title-description similarities.
     - Pass if all sims >= sim_high; fail if both image sims <= sim_low; otherwise gray-zone LLM.
+    - Thresholds can be tuned per request for different product categories.
     """
     try:
         image_bytes = await image.read()
@@ -56,9 +60,9 @@ async def evaluate_endpoint(
             title_text=title,
             description_text=description,
             mm_model=mm_model,
-            dim=EMBEDDING_DIM,
-            sim_low=SIM_LOW,
-            sim_high=SIM_HIGH
+            dim=embedding_dim,
+            sim_low=sim_low,
+            sim_high=sim_high
         )
         return JSONResponse(content=verdict, status_code=200)
     except Exception as e:

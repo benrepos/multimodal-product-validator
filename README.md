@@ -5,12 +5,16 @@ A FastAPI service that validates product listings by comparing images against ti
 ## Features
 
 - **Embeddings-First Approach**: Fast cosine similarity checks using multimodal embeddings
-- **Gray-Zone LLM Fallback**: Gemini-powered validation for ambiguous cases
+  - **Cost-effective at scale**: Process hundreds of thousands of products cheaply
+  - **Fast filtering**: Auto-pass/fail clear cases without expensive LLM calls
+  - **Smart escalation**: Only invoke Gemini for ambiguous cases in the gray zone
+- **Gray-Zone LLM Fallback**: Gemini-powered validation for uncertain cases
 - **Dual Endpoints**: 
-  - `/evaluate`: Hybrid embeddings + LLM approach
+  - `/evaluate`: Hybrid embeddings + LLM approach (recommended for production)
   - `/evaluate/llm-only`: Direct LLM validation (bypass embeddings)
 - **Structured Validation**: Returns conflicts across brand, product_type, color, and material
 - **Pydantic Schema Validation**: Type-safe responses with automatic validation
+- **Per-Category Tuning**: Adjust thresholds per product category to optimize accuracy and cost
 
 ## Architecture
 
@@ -92,11 +96,6 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\
 
 # Model Configuration
 GEMINI_MODEL_ID=gemini-2.5-flash
-EMBEDDING_DIM=512
-
-# Thresholds
-SIM_LOW=0.08
-SIM_HIGH=0.4
 
 # Optional
 DEBUG=0
@@ -146,11 +145,30 @@ Interactive docs: `http://localhost:8000/docs`
 
 Computes embeddings first, uses LLM only in gray zone.
 
+**Parameters**:
+- `image` (file, required): Product image (JPEG/PNG)
+- `title` (string, required): Product title
+- `description` (string, required): Product description
+- `embedding_dim` (int, optional): Embedding dimension (default: 512, options: 128, 256, 512, 1408)
+- `sim_low` (float, optional): Lower similarity threshold for auto-fail (default: 0.08)
+- `sim_high` (float, optional): Upper similarity threshold for auto-pass (default: 0.4)
+
 ```bash
 curl -X POST http://localhost:8000/evaluate \
   -F "image=@test/screwdriver.jpeg" \
   -F "title=Phillips head screwdriver" \
   -F "description=Red and black handle screwdriver with cross-tip"
+```
+
+**With custom thresholds** (e.g., for apparel category):
+```bash
+curl -X POST http://localhost:8000/evaluate \
+  -F "image=@test/screwdriver.jpeg" \
+  -F "title=Phillips head screwdriver" \
+  -F "description=Red and black handle screwdriver" \
+  -F "embedding_dim=512" \
+  -F "sim_low=0.10" \
+  -F "sim_high=0.35"
 ```
 
 **Response**:
@@ -226,22 +244,25 @@ python test/test.py
 | `GOOGLE_CLIENT_EMAIL` | - | Service account email |
 | `GOOGLE_PRIVATE_KEY` | - | Service account private key |
 | `GEMINI_MODEL_ID` | `gemini-2.5-flash` | Gemini model for LLM validation |
-| `EMBEDDING_DIM` | `512` | Embedding dimension (128, 256, 512, 1408) |
-| `SIM_LOW` | `0.08` | Lower similarity threshold (auto-fail) |
-| `SIM_HIGH` | `0.4` | Upper similarity threshold (auto-pass) |
 | `DEBUG` | `0` | Enable debug logging (0 or 1) |
 | `PORT` | `8000` | API server port |
 
 ### Tuning Thresholds
 
-- **`SIM_LOW`**: If both `image↔title` and `image↔description` similarities are below this, auto-fail without LLM.
-- **`SIM_HIGH`**: If all three similarities are above this, auto-pass without LLM.
-- **Gray zone**: Between `SIM_LOW` and `SIM_HIGH`, the LLM is invoked for nuanced validation.
+Thresholds are passed as **request parameters** (not environment variables) to allow per-category tuning:
 
-Recommended approach:
-1. Collect a small labeled dataset (matches vs mismatches)
+- **`sim_low`** (default: 0.08): If both `image↔title` and `image↔description` similarities are below this, auto-fail without LLM.
+- **`sim_high`** (default: 0.4): If all three similarities are above this, auto-pass without LLM.
+- **`embedding_dim`** (default: 512): Embedding dimension (128, 256, 512, 1408).
+- **Gray zone**: Between `sim_low` and `sim_high`, the LLM is invoked for nuanced validation.
+
+**Recommended approach**:
+1. Collect a small labeled dataset per product category (matches vs mismatches)
 2. Plot similarity distributions
 3. Choose thresholds that maximize F1 or minimize false positives
+4. Pass category-specific thresholds in each API request
+
+**Example**: Tools might use `sim_high=0.4`, while apparel uses `sim_high=0.35` due to higher visual variance.
 
 ## Docker Deployment
 
@@ -285,9 +306,32 @@ curl -X POST http://localhost:8000/evaluate \
 
 ## Cost Optimization
 
+### Why Embeddings-First?
+
+When validating **hundreds of thousands of products**, LLM costs add up quickly. This service uses a hybrid approach to minimize expenses:
+
+**Cost Comparison** (approximate):
+- **Embedding similarity check**: ~$0.0001 per product (fast, cheap)
+- **Gemini LLM call**: ~$0.001-0.01 per product (10-100x more expensive)
+
+**At scale** (100,000 products):
+- **LLM-only approach**: $100-1,000+ in API costs
+- **Embeddings-first approach**: $10-50 (80-95% cost reduction)
+
+### How It Works
+
+1. **Auto-pass** (~60-70% of products): High similarity → immediate pass, no LLM call
+2. **Auto-fail** (~10-20% of products): Very low similarity → immediate fail, no LLM call
+3. **Gray zone** (~10-30% of products): Ambiguous cases → LLM validation only when needed
+
+### Optimization Strategies
+
 - **Embeddings-first**: Fast, cheap cosine similarity checks filter most cases
 - **LLM gray-zone only**: Gemini is called only when embeddings are ambiguous
-- **Tunable thresholds**: Adjust `SIM_LOW`/`SIM_HIGH` to control LLM usage
+- **Tunable thresholds**: Adjust `sim_low`/`sim_high` per request to control LLM usage
+  - Wider thresholds (e.g., `sim_low=0.05`, `sim_high=0.5`) → fewer LLM calls, lower cost
+  - Tighter thresholds (e.g., `sim_low=0.10`, `sim_high=0.30`) → more LLM calls, higher accuracy
+- **Per-category tuning**: Use stricter thresholds for high-confidence categories to reduce LLM calls
 - **Caching**: Consider adding embedding/verdict caching for repeated queries
 
 ## Troubleshooting

@@ -16,10 +16,10 @@ logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
 credentials = get_google_credentials()
 vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
 
-# Load multimodal embedding model
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
-SIM_LOW = float(os.getenv("SIM_LOW", "0.08"))
-SIM_HIGH = float(os.getenv("SIM_HIGH", "0.4"))
+# Test configuration (tune per product category)
+EMBEDDING_DIM = 512
+SIM_LOW = 0.08
+SIM_HIGH = 0.4
 
 mm_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
 
