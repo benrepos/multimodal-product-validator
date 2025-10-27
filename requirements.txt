@@ -6,3 +6,4 @@ numpy
 vertexai
 google-api-core
 pydantic>=2
+python-multipart

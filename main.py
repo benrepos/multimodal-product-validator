@@ -14,7 +14,7 @@ from app.services.evaluator import evaluate_product, evaluate_product_llm_only
 DEBUG = os.getenv("DEBUG", "0") in {"1", "true", "True"}
 logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
 
-# Initialize Vertex AI
+#Initialize Vertex AI client (cheap) – defer model load to first request
 credentials = get_google_credentials()
 vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
 
@@ -23,7 +23,16 @@ DEFAULT_EMBEDDING_DIM = 512
 DEFAULT_SIM_LOW = 0.08
 DEFAULT_SIM_HIGH = 0.4
 
-mm_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+_mm_model = None
+
+
+def get_mm_model() -> MultiModalEmbeddingModel:
+    global _mm_model
+    if _mm_model is None:
+        logging.info("Loading multimodal embedding model 'multimodalembedding@001'...")
+        _mm_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+        logging.info("Multimodal embedding model loaded.")
+    return _mm_model
 
 app = FastAPI(
     title="Product Validator API",
@@ -68,7 +77,7 @@ async def evaluate_endpoint(
             image_bytes=image_bytes,
             title_text=title,
             description_text=description,
-            mm_model=mm_model,
+            mm_model=get_mm_model(),
             dim=embedding_dim,
             sim_low=sim_low,
             sim_high=sim_high
