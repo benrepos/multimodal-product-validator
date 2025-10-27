@@ -97,10 +97,15 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\
 # Model Configuration
 GEMINI_MODEL_ID=gemini-2.5-flash
 
+# API Security
+API_KEY=your-secret-api-key-here
+
 # Optional
 DEBUG=0
 PORT=8000
 ```
+
+**Note**: If `API_KEY` is not set, the API runs in dev mode without authentication (not recommended for production).
 
 ### Authentication
 
@@ -155,6 +160,7 @@ Computes embeddings first, uses LLM only in gray zone.
 
 ```bash
 curl -X POST http://localhost:8000/evaluate \
+  -H "x-api-key: your-secret-api-key-here" \
   -F "image=@test/screwdriver.jpeg" \
   -F "title=Phillips head screwdriver" \
   -F "description=Red and black handle screwdriver with cross-tip"
@@ -163,6 +169,7 @@ curl -X POST http://localhost:8000/evaluate \
 **With custom thresholds** (e.g., for apparel category):
 ```bash
 curl -X POST http://localhost:8000/evaluate \
+  -H "x-api-key: your-secret-api-key-here" \
   -F "image=@test/screwdriver.jpeg" \
   -F "title=Phillips head screwdriver" \
   -F "description=Red and black handle screwdriver" \
@@ -192,6 +199,7 @@ Skips embeddings, directly uses Gemini for validation.
 
 ```bash
 curl -X POST http://localhost:8000/evaluate/llm-only \
+  -H "x-api-key: your-secret-api-key-here" \
   -F "image=@test/screwdriver.jpeg" \
   -F "title=Masking tape" \
   -F "description=50mm adhesive tape"
@@ -244,6 +252,7 @@ python test/test.py
 | `GOOGLE_CLIENT_EMAIL` | - | Service account email |
 | `GOOGLE_PRIVATE_KEY` | - | Service account private key |
 | `GEMINI_MODEL_ID` | `gemini-2.5-flash` | Gemini model for LLM validation |
+| `API_KEY` | - | API key for endpoint authentication (optional, dev mode if not set) |
 | `DEBUG` | `0` | Enable debug logging (0 or 1) |
 | `PORT` | `8000` | API server port |
 

@@ -1,12 +1,12 @@
 """FastAPI server for product validation."""
 import os
 import logging
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
 import vertexai
 from vertexai.vision_models import MultiModalEmbeddingModel
 
-from config import PROJECT_ID, LOCATION, get_google_credentials
+from config import PROJECT_ID, LOCATION, API_KEY, get_google_credentials
 from app.models import VerdictResponse
 from app.services.evaluator import evaluate_product, evaluate_product_llm_only
 
@@ -32,12 +32,21 @@ app = FastAPI(
 )
 
 
+def verify_api_key(x_api_key: str = Header(..., description="API key for authentication")):
+    """Verify API key from x-api-key header."""
+    if not API_KEY:
+        # If no API_KEY is set in env, skip validation (dev mode)
+        return
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
 @app.get("/")
 def root():
     return {"message": "Product Validator API", "version": "1.0.0"}
 
 
-@app.post("/evaluate", response_model=VerdictResponse)
+@app.post("/evaluate", response_model=VerdictResponse, dependencies=[Depends(verify_api_key)])
 async def evaluate_endpoint(
     image: UploadFile = File(..., description="Product image (JPEG/PNG)"),
     title: str = Form(..., description="Product title"),
@@ -70,7 +79,7 @@ async def evaluate_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/evaluate/llm-only", response_model=VerdictResponse)
+@app.post("/evaluate/llm-only", response_model=VerdictResponse, dependencies=[Depends(verify_api_key)])
 async def evaluate_llm_only_endpoint(
     image: UploadFile = File(..., description="Product image (JPEG/PNG)"),
     title: str = Form(..., description="Product title"),

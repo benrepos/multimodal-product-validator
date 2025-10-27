@@ -43,6 +43,8 @@ LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
 GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
+API_KEY = os.getenv("API_KEY")
+
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
 
