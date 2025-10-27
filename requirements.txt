@@ -1,0 +1,8 @@
+uvicorn[standard]
+fastapi
+python-dotenv
+google-cloud-aiplatform
+numpy
+vertexai
+google-api-core
+pydantic>=2

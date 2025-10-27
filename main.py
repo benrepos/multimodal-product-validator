@@ -1,0 +1,98 @@
+"""FastAPI server for product validation."""
+import os
+import logging
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+import vertexai
+from vertexai.vision_models import MultiModalEmbeddingModel
+
+from config import PROJECT_ID, LOCATION, get_google_credentials
+from app.models import VerdictResponse
+from app.services.evaluator import evaluate_product, evaluate_product_llm_only
+
+# Initialize logging
+DEBUG = os.getenv("DEBUG", "0") in {"1", "true", "True"}
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
+
+# Initialize Vertex AI
+credentials = get_google_credentials()
+vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
+
+# Load multimodal embedding model once
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
+SIM_LOW = float(os.getenv("SIM_LOW", "0.08"))
+SIM_HIGH = float(os.getenv("SIM_HIGH", "0.4"))
+
+mm_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+
+app = FastAPI(
+    title="Product Validator API",
+    description="Validate product images against titles and descriptions using embeddings + LLM.",
+    version="1.0.0"
+)
+
+
+@app.get("/")
+def root():
+    return {"message": "Product Validator API", "version": "1.0.0"}
+
+
+@app.post("/evaluate", response_model=VerdictResponse)
+async def evaluate_endpoint(
+    image: UploadFile = File(..., description="Product image (JPEG/PNG)"),
+    title: str = Form(..., description="Product title"),
+    description: str = Form(..., description="Product description"),
+):
+    """
+    Evaluate product using embeddings-first approach with gray-zone LLM fallback.
+
+    - Computes image-title, image-description, title-description similarities.
+    - Pass if all sims >= sim_high; fail if both image sims <= sim_low; otherwise gray-zone LLM.
+    """
+    try:
+        image_bytes = await image.read()
+        verdict = evaluate_product(
+            image_bytes=image_bytes,
+            title_text=title,
+            description_text=description,
+            mm_model=mm_model,
+            dim=EMBEDDING_DIM,
+            sim_low=SIM_LOW,
+            sim_high=SIM_HIGH
+        )
+        return JSONResponse(content=verdict, status_code=200)
+    except Exception as e:
+        logging.error(f"Error in /evaluate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/evaluate/llm-only", response_model=VerdictResponse)
+async def evaluate_llm_only_endpoint(
+    image: UploadFile = File(..., description="Product image (JPEG/PNG)"),
+    title: str = Form(..., description="Product title"),
+    description: str = Form(..., description="Product description"),
+):
+    """
+    Evaluate product using LLM-only (skip embeddings).
+
+    - Directly calls Gemini to compare image, title, and description.
+    - Returns verdict with conflicts and pair disagreements.
+    """
+    try:
+        image_bytes = await image.read()
+        verdict = evaluate_product_llm_only(
+            image_bytes=image_bytes,
+            title_text=title,
+            description_text=description
+        )
+        return JSONResponse(content=verdict, status_code=200)
+    except Exception as e:
+        logging.error(f"Error in /evaluate/llm-only: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=DEBUG)
+
