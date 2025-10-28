@@ -25,7 +25,6 @@ DEFAULT_SIM_HIGH = 0.4
 
 _mm_model = None
 
-
 def get_mm_model() -> MultiModalEmbeddingModel:
     global _mm_model
     if _mm_model is None:

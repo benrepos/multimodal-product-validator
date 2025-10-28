@@ -306,6 +306,147 @@ curl -X POST http://localhost:8000/evaluate \
   -F "description=Test description"
 ```
 
+### Using Image URLs (download then upload)
+
+The API expects a multipart file upload for `image`. If you only have an image URL, download it on the client and attach the bytes.
+
+#### Python (requests)
+
+```python
+import requests
+
+API = "http://localhost:8000/evaluate"
+HEADERS = {"x-api-key": "your-secret-api-key-here"}
+
+image_url = "https://example.com/path/to/image.jpg"
+r = requests.get(image_url, timeout=30)
+r.raise_for_status()
+
+files = {
+    "image": ("image.jpg", r.content, "image/jpeg"),
+}
+data = {
+    "title": "Phillips head screwdriver",
+    "description": "Red and black handle cross-tip",
+    "embedding_dim": "512",
+    "sim_low": "0.08",
+    "sim_high": "0.40",
+}
+
+resp = requests.post(API, headers=HEADERS, files=files, data=data, timeout=60)
+print(resp.json())
+```
+
+#### Python (aiohttp, async)
+
+```python
+import aiohttp, asyncio
+
+async def main():
+    image_url = "https://example.com/path/to/image.jpg"
+    api = "http://localhost:8000/evaluate"
+    headers = {"x-api-key": "your-secret-api-key-here"}
+    async with aiohttp.ClientSession() as s:
+        async with s.get(image_url, timeout=30) as r:
+            img = await r.read()
+        fd = aiohttp.FormData()
+        fd.add_field("image", img, filename="image.jpg", content_type="image/jpeg")
+        fd.add_field("title", "Phillips head screwdriver")
+        fd.add_field("description", "Red and black handle cross-tip")
+        async with s.post(api, headers=headers, data=fd, timeout=60) as resp:
+            print(await resp.json())
+
+asyncio.run(main())
+```
+
+#### Shell (curl)
+
+```bash
+IMG_URL="https://example.com/path/to/image.jpg"
+curl -sL "$IMG_URL" \
+  | curl -s -X POST http://localhost:8000/evaluate \
+      -H "x-api-key: your-secret-api-key-here" \
+      -F "image=@-;filename=image.jpg" \
+      -F "title=Phillips head screwdriver" \
+      -F "description=Red and black handle cross-tip" \
+      -F "embedding_dim=512" -F "sim_low=0.08" -F "sim_high=0.40"
+```
+
+### Batch Processing
+
+Validate thousands of products efficiently by batching requests and controlling concurrency.
+
+#### Option A: Python async (recommended)
+
+```python
+import asyncio
+import aiohttp
+
+API_URL = "http://localhost:8000/evaluate"
+API_KEY = "your-secret-api-key-here"
+CONCURRENCY = 10  # tune per CPU/network
+
+products = [
+    {"image_path": "images/1.jpg", "title": "...", "description": "..."},
+    # ... thousands more
+]
+
+async def validate(session, p):
+    with open(p["image_path"], "rb") as f:
+        data = aiohttp.FormData()
+        data.add_field("image", f, filename=p["image_path"], content_type="image/jpeg")
+        data.add_field("title", p["title"]) 
+        data.add_field("description", p["description"])
+        # Optional per-category tuning
+        data.add_field("embedding_dim", "512")
+        data.add_field("sim_low", "0.08")
+        data.add_field("sim_high", "0.40")
+        headers = {"x-api-key": API_KEY}
+        async with session.post(API_URL, data=data, headers=headers, timeout=60) as resp:
+            return await resp.json()
+
+async def main():
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+    async with aiohttp.ClientSession() as session:
+        async def guarded(p):
+            async with semaphore:
+                return await validate(session, p)
+        results = await asyncio.gather(*(guarded(p) for p in products), return_exceptions=True)
+        # TODO: write results to file/DB
+
+asyncio.run(main())
+```
+
+#### Option B: Shell parallelization (GNU parallel)
+
+```bash
+export API_URL="http://localhost:8000/evaluate"
+export API_KEY="your-secret-api-key-here"
+
+parallel -j 10 --colsep ',' \
+  'curl -s -X POST "$API_URL" \
+     -H "x-api-key: $API_KEY" \
+     -F "image=@{1}" \
+     -F "title={2}" \
+     -F "description={3}" \
+     -F "embedding_dim=512" \
+     -F "sim_low=0.08" \
+     -F "sim_high=0.40"' \
+  :::: products.csv > results.jsonl
+```
+
+Where `products.csv` contains lines like:
+
+```csv
+images/1.jpg,Phillips screwdriver,Red/black handle cross-tip
+images/2.jpg,Masking tape 50mm x 50m,General purpose masking tape
+```
+
+Tips:
+- Throttle concurrency to stay within rate limits and avoid LLM overuse.
+- Use category-specific thresholds (`sim_low`, `sim_high`) to reduce LLM calls.
+- Consider caching verdicts for repeated items.
+
 ### Code Structure
 
 - **Pure functions**: All LLM and evaluation logic uses pure functions (no classes)
